@@ -1,0 +1,32 @@
+name: ClusterFuzzLite batch fuzzing
+on:
+  schedule:
+    - cron: '0 2 * * *'      # Cada noche a las 2:00 AM UTC
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  BatchFuzzing:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, undefined]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build fuzzers
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: c++
+          sanitizer: ${{ matrix.sanitizer }}
+
+      - name: Run fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 600        # 10 minutos iniciales (puedes aumentarlo a 21600 para 6h)
+          mode: 'batch'
+          sanitizer: ${{ matrix.sanitizer }}
