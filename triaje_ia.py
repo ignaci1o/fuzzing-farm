@@ -11,8 +11,8 @@ import json
 import urllib.request
 import urllib.error
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL = "gemini-3.5-flash"
+API_KEY = os.getenv("GEMINI_API_KEY", "")
+MODELS = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]
 
 SYSTEM_PROMPT = """Eres un experto auditor de seguridad en memoria (Vulnerability Researcher).
 Tu tarea es analizar el volcado de error (stack trace de AddressSanitizer/libFuzzer/AFL++)
@@ -34,12 +34,10 @@ RESULTADO DEL TRIAJE: [🔴 INTERESANTE / VULNERABILIDAD REAL | 🟡 RUIDO / BEN
 
 def analizar_crash(crash_text: str):
     if not API_KEY:
-        print("[!] Error: No se encontró la variable GEMINI_API_KEY.")
+        print("[!] Error: No se encontró la variable de entorno GEMINI_API_KEY.")
         sys.exit(1)
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
     headers = {"Content-Type": "application/json"}
-    
     prompt = f"Analiza este volcado de error de AddressSanitizer:\n\n```text\n{crash_text}\n```"
     
     payload = {
@@ -55,16 +53,24 @@ def analizar_crash(crash_text: str):
         }
     }
 
-    try:
-        req = urllib.request.Request(url, headers=headers, data=json.dumps(payload).encode("utf-8"))
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode())
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except urllib.error.HTTPError as e:
-        error_msg = e.read().decode()
-        return f"[!] Error de API ({e.code}): {error_msg}"
-    except Exception as e:
-        return f"[!] Error de conexión: {str(e)}"
+    last_error = ""
+    for model in MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}"
+        try:
+            req = urllib.request.Request(url, headers=headers, data=json.dumps(payload).encode("utf-8"))
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode())
+                texto = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return f"[Modelo: {model}]\n{texto}"
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode()
+            last_error = f"HTTP {e.code} ({model}): {error_body}"
+            continue
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    return f"[!] No se pudo contactar con los modelos disponibles. Último error:\n{last_error}"
 
 def main():
     if len(sys.argv) > 1:
@@ -82,7 +88,7 @@ def main():
         print("[!] No se proporcionó texto de crash para analizar.")
         sys.exit(1)
 
-    print("\n🔍 Analizando crash con Gemini AI (gemini-3.5-flash)... Espera unos segundos.\n")
+    print("\n🔍 Analizando crash con Gemini AI... Espera unos segundos.\n")
     resultado = analizar_crash(crash_text)
     print(resultado)
 
